@@ -3,37 +3,218 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gemini Voice Assistant</title>
+    <title>Gemini Diagnostic</title>
     <style>
-        /* This prevents the raw text from showing up on screen */
         body { 
-            display: flex; 
-            flex-direction: column; 
-            align-items: center; 
-            justify-content: center; 
-            height: 100vh; 
-            margin: 0; 
-            background: #111; 
-            color: white; 
-            font-family: sans-serif;
-            text-align: center;
+            background: #121212; color: white; font-family: monospace; 
+            display: flex; flex-direction: column; align-items: center; 
+            padding: 20px; height: 100vh; box-sizing: border-box;
         }
         
-        button {
-            padding: 25px 50px; 
-            font-size: 1.5rem; 
-            border-radius: 50px; 
-            border: none;
-            background: #4e8cff; 
-            color: white; 
-            margin-bottom: 20px;
-            box-shadow: 0 4px 15px rgba(78, 140, 255, 0.4);
-            cursor: pointer;
-            transition: all 0.2s;
+        /* Volume Meter */
+        .meter-container {
+            width: 100%; max-width: 300px; height: 20px; 
+            background: #333; border-radius: 10px; margin: 20px 0; overflow: hidden;
+            border: 1px solid #555;
+        }
+        #volume-bar {
+            width: 0%; height: 100%; background: #00ff00; 
+            transition: width 0.1s;
         }
 
-        button:active { transform: scale(0.95); }
+        button {
+            padding: 15px 30px; font-size: 1.1rem; border-radius: 8px; border: none;
+            background: #4e8cff; color: white; margin: 10px; cursor: pointer; width: 100%; max-width: 300px;
+        }
+        
+        input {
+            padding: 15px; width: 100%; max-width: 280px; 
+            background: #222; border: 1px solid #444; color: white; 
+            border-radius: 8px; margin-bottom: 10px;
+        }
 
+        #log { 
+            margin-top: 20px; padding: 15px; background: #1e1e1e; 
+            width: 100%; max-width: 300px; border-radius: 8px; 
+            font-size: 0.9rem; border: 1px solid #333; min-height: 100px;
+            white-space: pre-wrap; word-wrap: break-word;
+        }
+    </style>
+</head>
+<body>
+
+    <h2>DIAGNOSTIC MODE</h2>
+    
+    <div style="width:100%; max-width:300px; margin-bottom:30px; border-bottom:1px solid #333; padding-bottom:20px;">
+        <p style="color:#aaa">TEST 1: API Key Check</p>
+        <input type="text" id="textInput" placeholder="Type 'Hello' here...">
+        <button onclick="sendText()" style="background:#555">Send Text</button>
+    </div>
+
+    <div style="width:100%; max-width:300px;">
+        <p style="color:#aaa">TEST 2: Microphone Check</p>
+        <div class="meter-container"><div id="volume-bar"></div></div>
+        <button id="micBtn">Hold to Record Audio</button>
+    </div>
+
+    <div id="log">Log will appear here...</div>
+
+    <script>
+        const API_KEY = "AIzaSyAehS-QGJqkwKu91wQFLoi2uhT_784gU_0";
+        const MODEL = "gemini-1.5-flash"; // More stable model
+
+        const logEl = document.getElementById('log');
+        const volBar = document.getElementById('volume-bar');
+        const micBtn = document.getElementById('micBtn');
+
+        let mediaRecorder;
+        let audioChunks = [];
+        let audioContext;
+        let analyser;
+        let stream;
+
+        // --- LOGGER ---
+        function log(msg) {
+            logEl.textContent = msg + "\n\n" + logEl.textContent; 
+        }
+
+        // --- TEST 1: TEXT ONLY ---
+        async function sendText() {
+            const text = document.getElementById('textInput').value;
+            if(!text) return;
+            
+            log("Sending text: " + text);
+            try {
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${API_KEY}`;
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ contents: [{ parts: [{ text: text }] }] })
+                });
+                const data = await response.json();
+                
+                if(data.error) throw new Error(data.error.message);
+                if(!data.candidates) throw new Error("Blocked/Empty");
+                
+                log("SUCCESS (Text): " + data.candidates[0].content.parts[0].text);
+            } catch(e) {
+                log("ERROR (Text): " + e.message);
+            }
+        }
+
+        // --- TEST 2: AUDIO RECORDING ---
+        micBtn.addEventListener('touchstart', startRecord);
+        micBtn.addEventListener('touchend', stopRecord);
+        micBtn.addEventListener('mousedown', startRecord);
+        micBtn.addEventListener('mouseup', stopRecord);
+
+        async function startRecord(e) {
+            e.preventDefault();
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                
+                // 1. Setup Volume Visualizer
+                audioContext = new AudioContext();
+                const source = audioContext.createMediaStreamSource(stream);
+                analyser = audioContext.createAnalyser();
+                source.connect(analyser);
+                analyser.fftSize = 256;
+                const bufferLength = analyser.frequencyBinCount;
+                const dataArray = new Uint8Array(bufferLength);
+
+                // Animation Loop
+                function draw() {
+                    if(!stream.active) return;
+                    requestAnimationFrame(draw);
+                    analyser.getByteFrequencyData(dataArray);
+                    let sum = 0;
+                    for(let i=0; i<bufferLength; i++) sum += dataArray[i];
+                    let average = sum / bufferLength;
+                    // Amplify for visual
+                    let width = Math.min(100, average * 3); 
+                    volBar.style.width = width + "%";
+                }
+                draw();
+
+                // 2. Setup Recorder
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
+                mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+                mediaRecorder.start();
+                
+                log("Recording... (Check if green bar moves!)");
+                micBtn.style.background = "red";
+                micBtn.textContent = "Recording...";
+
+            } catch(err) {
+                log("MIC ERROR: " + err.message);
+            }
+        }
+
+        async function stopRecord(e) {
+            e.preventDefault();
+            if(!mediaRecorder || mediaRecorder.state === 'inactive') return;
+
+            mediaRecorder.stop();
+            stream.getTracks().forEach(t => t.stop()); // Stop mic
+            audioContext.close(); // Stop audio processing
+            
+            micBtn.style.background = "#4e8cff";
+            micBtn.textContent = "Processing...";
+            volBar.style.width = "0%";
+
+            setTimeout(async () => {
+                const blob = new Blob(audioChunks, { type: 'audio/webm' });
+                if(blob.size < 1000) {
+                    log("ERROR: Audio file too small (Silence?)");
+                    return;
+                }
+                
+                // Send to Gemini
+                const base64 = await new Promise(r => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => r(reader.result.split(',')[1]);
+                    reader.readAsDataURL(blob);
+                });
+
+                log("Sending Audio (" + blob.size + " bytes)...");
+                
+                try {
+                    const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${API_KEY}`;
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            contents: [{
+                                parts: [
+                                    { text: "Listen to this audio." },
+                                    { inline_data: { mime_type: "audio/webm", data: base64 } }
+                                ]
+                            }]
+                        })
+                    });
+                    const data = await response.json();
+                    
+                    if(data.error) throw new Error(data.error.message);
+                    if(!data.candidates) {
+                        console.log(data); // Debug
+                        throw new Error("Safety Block / Empty. (Did you speak clearly?)");
+                    }
+
+                    const answer = data.candidates[0].content.parts[0].text;
+                    log("GEMINI: " + answer);
+                    
+                    const speech = new SpeechSynthesisUtterance(answer);
+                    window.speechSynthesis.speak(speech);
+
+                } catch(err) {
+                    log("API ERROR: " + err.message);
+                }
+            }, 500);
+        }
+    </script>
+</body>
+</html>
         #log { 
             color: #ccc; 
             font-size: 1rem; 
