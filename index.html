@@ -3,37 +3,157 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gemini Voice (Force)</title>
+    <title>Gemini Voice Assistant</title>
     <style>
         body { 
-            display: flex; flex-direction: column; align-items: center; justify-content: center; 
-            height: 100vh; margin: 0; background: #222; color: white; font-family: sans-serif;
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: center; 
+            height: 100vh; 
+            margin: 0; 
+            background: #222; 
+            color: white; 
+            font-family: sans-serif;
+            text-align: center;
         }
+        
         button {
-            padding: 20px 40px; font-size: 1.5rem; border-radius: 50px; border: none;
-            background: #4e8cff; color: white; margin-bottom: 20px;
+            padding: 25px 50px; 
+            font-size: 1.5rem; 
+            border-radius: 50px; 
+            border: none;
+            background: #4e8cff; 
+            color: white; 
+            margin-bottom: 20px;
+            box-shadow: 0 4px 15px rgba(78, 140, 255, 0.4);
+            cursor: pointer;
         }
-        #log { color: #aaa; font-size: 0.8rem; padding: 20px; text-align: center;}
+
+        button:active {
+            transform: scale(0.95);
+        }
+
+        #log { 
+            color: #aaa; 
+            font-size: 1rem; 
+            padding: 20px; 
+            max-width: 80%;
+            line-height: 1.5;
+        }
     </style>
 </head>
 <body>
 
     <button id="btn">TAP TO START</button>
-    <div id="log">Status: Waiting for interaction...</div>
+    
+    <div id="log">Status: Waiting for you to tap the button...</div>
 
     <script>
         const btn = document.getElementById('btn');
         const log = document.getElementById('log');
+        
+        // YOUR API KEY
         const API_KEY = "AIzaSyAehS-QGJqkwKu91wQFLoi2uhT_784gU_0"; 
 
-        // Force request immediately on click
+        // 1. CLICK TO ASK PERMISSION
         btn.addEventListener('click', async () => {
-            log.textContent = "Status: Requesting Mic...";
+            log.textContent = "Status: Asking for Microphone...";
             
             try {
-                // This triggers the browser popup
+                // This line triggers the browser popup
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 
+                log.textContent = "Status: SUCCESS! Microphone is working.";
+                btn.style.background = "#2ecc71"; // Turn Green
+                btn.textContent = "Listening...";
+                
+                // 2. IMMEDIATELY START RECORDING FOR DEMO
+                startGemini(stream);
+
+            } catch (err) {
+                console.error(err);
+                log.textContent = "Status: BLOCKED. " + err.message;
+                alert("Error: Permission Denied.\n\nTap the Lock icon 🔒 in your address bar -> Permissions -> Reset Microphone.");
+            }
+        });
+
+        async function startGemini(stream) {
+            log.textContent = "Status: Recording... Say something!";
+            
+            const mediaRecorder = new MediaRecorder(stream);
+            const audioChunks = [];
+
+            mediaRecorder.ondataavailable = event => {
+                audioChunks.push(event.data);
+            };
+
+            mediaRecorder.onstop = async () => {
+                log.textContent = "Status: Sending to Gemini...";
+                
+                const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                const base64Audio = await blobToBase64(audioBlob);
+                
+                await sendToGemini(base64Audio);
+            };
+
+            mediaRecorder.start();
+
+            // Record for 4 seconds then stop automatically (Simple Demo)
+            setTimeout(() => {
+                mediaRecorder.stop();
+                btn.textContent = "Thinking...";
+            }, 4000);
+        }
+
+        async function sendToGemini(base64Audio) {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`;
+            
+            const payload = {
+                contents: [{
+                    parts: [
+                        { text: "You are a helpful assistant. Answer briefly." },
+                        { inline_data: { mime_type: "audio/webm", data: base64Audio } }
+                    ]
+                }]
+            };
+
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await response.json();
+                const aiText = data.candidates[0].content.parts[0].text;
+                
+                log.textContent = "Gemini: " + aiText;
+                speakText(aiText);
+                btn.textContent = "Tap to Speak Again";
+                btn.style.background = "#4e8cff"; // Reset Blue
+
+            } catch (error) {
+                log.textContent = "Error: " + error.message;
+            }
+        }
+
+        function blobToBase64(blob) {
+            return new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result.split(',')[1]);
+                reader.readAsDataURL(blob);
+            });
+        }
+
+        function speakText(text) {
+            window.speechSynthesis.cancel();
+            const utterance = new SpeechSynthesisUtterance(text);
+            window.speechSynthesis.speak(utterance);
+        }
+    </script>
+</body>
+</html>
                 log.textContent = "Status: SUCCESS! Mic is active.";
                 btn.style.background = "#2ecc71";
                 btn.textContent = "Mic Active";
