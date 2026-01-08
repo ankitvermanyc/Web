@@ -3,877 +3,233 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Auto-Model Gemini</title>
+    <title>Gemini Assistant</title>
     <style>
-        body { 
-            background: #121212; color: white; font-family: 'Segoe UI', sans-serif; 
-            display: flex; flex-direction: column; align-items: center; 
-            padding: 20px; min-height: 100vh; box-sizing: border-box; text-align: center;
+        /* --- CLEAN DARK THEME --- */
+        body {
+            margin: 0;
+            height: 100vh;
+            background-color: #121212;
+            font-family: 'Segoe UI', sans-serif;
+            overflow: hidden;
         }
 
-        h2 { margin-bottom: 5px; color: #4e8cff; }
-
-        .status-bar {
-            font-size: 0.85rem; color: #888; margin-bottom: 30px;
-            background: #1e1e1e; padding: 10px 20px; border-radius: 30px;
-            border: 1px solid #333; display: flex; align-items: center; gap: 10px;
-        }
-        
-        .status-dot {
-            width: 8px; height: 8px; background: #555; border-radius: 50%;
-            transition: background 0.3s;
-        }
-        .status-dot.connected { background: #00ff00; box-shadow: 0 0 10px #00ff00; }
-        .status-dot.error { background: #ff4444; }
-
-        /* BIG RECORD BUTTON */
-        #micBtn {
-            padding: 20px 40px; font-size: 1.2rem; border-radius: 50px; border: none;
-            color: white; margin: 20px 0; cursor: not-allowed; width: 100%; max-width: 320px;
-            background: #333; transition: all 0.2s; font-weight: 600; opacity: 0.6;
-            box-shadow: none;
-        }
-        
-        #micBtn.ready {
-            background: linear-gradient(135deg, #4e8cff, #2a52be); 
-            cursor: pointer; opacity: 1;
-            box-shadow: 0 5px 20px rgba(78, 140, 255, 0.4);
-        }
-        #micBtn.ready:active { transform: scale(0.96); }
-
-        #log { 
-            margin-top: 20px; padding: 15px; background: #1e1e1e; 
-            width: 100%; max-width: 320px; border-radius: 12px; 
-            font-size: 0.95rem; border: 1px solid #333; min-height: 80px;
-            line-height: 1.5; color: #ddd;
-        }
-
-        /* Model Selector (Hidden details) */
-        select {
-            background: #222; color: #aaa; border: 1px solid #333; 
-            padding: 5px; border-radius: 5px; margin-top: 10px;
-            font-size: 0.8rem;
-        }
-
-    </style>
-</head>
-<body>
-
-    <h2>Gemini Assistant</h2>
-    
-    <div class="status-bar">
-        <div id="statusDot" class="status-dot"></div>
-        <span id="modelStatus">Connecting...</span>
-    </div>
-
-    <select id="modelSelect" disabled></select>
-
-    <button id="micBtn">Loading...</button>
-
-    <div id="log">Initializing...</div>
-
-    <script>
-        const API_KEY = "AIzaSyDg_-jCXLGrz6laQweUAD9aZCtn61_cK7A";
-        let SELECTED_MODEL = "";
-
-        // Elements
-        const micBtn = document.getElementById('micBtn');
-        const logEl = document.getElementById('log');
-        const statusDot = document.getElementById('statusDot');
-        const modelStatus = document.getElementById('modelStatus');
-        const modelSelect = document.getElementById('modelSelect');
-
-        // --- 1. AUTO-INIT ON LOAD ---
-        window.addEventListener('DOMContentLoaded', async () => {
-            logEl.textContent = "Status: Connecting to Google API...";
-            
-            try {
-                // Fetch list of available models
-                const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${API_KEY}`;
-                const response = await fetch(url);
-                const data = await response.json();
-
-                if (data.error) throw new Error(data.error.message);
-                if (!data.models) throw new Error("No models available.");
-
-                // Filter for models that support "generateContent"
-                const validModels = data.models.filter(m => 
-                    m.supportedGenerationMethods && 
-                    m.supportedGenerationMethods.includes("generateContent")
-                );
-
-                if (validModels.length === 0) throw new Error("No chat models found.");
-
-                // --- SMART SELECTION LOGIC ---
-                // We prefer Flash, then Pro, then anything else.
-                const preferences = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-1.0-pro"];
-                let bestModel = validModels[0].name.replace("models/", ""); // Default to first
-
-                // Try to find a preferred model
-                for (let pref of preferences) {
-                    const found = validModels.find(m => m.name.includes(pref));
-                    if (found) {
-                        bestModel = found.name.replace("models/", "");
-                        break;
-                    }
-                }
-
-                SELECTED_MODEL = bestModel;
-
-                // Update UI
-                populateDropdown(validModels, bestModel);
-                statusDot.classList.add('connected');
-                modelStatus.textContent = `Active: ${bestModel}`;
-                logEl.textContent = "Ready. Tap the button to speak.";
-                
-                // Enable Button
-                micBtn.classList.add('ready');
-                micBtn.textContent = "Hold to Speak";
-
-            } catch (err) {
-                console.error(err);
-                statusDot.classList.add('error');
-                modelStatus.textContent = "Connection Failed";
-                modelStatus.style.color = "#ff4444";
-                logEl.textContent = "Error: " + err.message;
-            }
-        });
-
-        // Helper: Fill dropdown so user can see/change model
-        function populateDropdown(models, current) {
-            modelSelect.innerHTML = "";
-            models.forEach(m => {
-                const name = m.name.replace("models/", "");
-                const opt = document.createElement('option');
-                opt.value = name;
-                opt.textContent = name;
-                if(name === current) opt.selected = true;
-                modelSelect.appendChild(opt);
-            });
-            modelSelect.disabled = false;
-            
-            // Allow manual change
-            modelSelect.addEventListener('change', (e) => {
-                SELECTED_MODEL = e.target.value;
-                modelStatus.textContent = `Active: ${SELECTED_MODEL}`;
-            });
-        }
-
-        // --- 2. RECORDING LOGIC ---
-        let mediaRecorder;
-        let audioChunks = [];
-
-        micBtn.addEventListener('touchstart', startRecord);
-        micBtn.addEventListener('touchend', stopRecord);
-        micBtn.addEventListener('mousedown', startRecord);
-        micBtn.addEventListener('mouseup', stopRecord);
-
-        async function startRecord(e) {
-            if (!micBtn.classList.contains('ready')) return;
-            e.preventDefault();
-
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                mediaRecorder = new MediaRecorder(stream);
-                audioChunks = [];
-
-                mediaRecorder.ondataavailable = event => audioChunks.push(event.data);
-                mediaRecorder.start();
-
-                micBtn.textContent = "Listening...";
-                micBtn.style.background = "#e74c3c"; // Red
-                logEl.textContent = "Status: Recording audio...";
-            } catch (err) {
-                logEl.textContent = "Mic Error: " + err.message;
-            }
-        }
-
-        function stopRecord(e) {
-            if (!mediaRecorder || mediaRecorder.state === 'inactive') return;
-            e.preventDefault();
-
-            mediaRecorder.stop();
-            micBtn.textContent = "Thinking...";
-            micBtn.style.background = "#f1c40f"; // Yellow
-            logEl.textContent = "Status: Sending to Gemini...";
-
-            setTimeout(async () => {
-                const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-                const base64Audio = await blobToBase64(audioBlob);
-                await sendToGemini(base64Audio);
-            }, 500);
-        }
-
-        async function sendToGemini(base64Audio) {
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/${SELECTED_MODEL}:generateContent?key=${API_KEY}`;
-
-            try {
-                const response = await fetch(url, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        contents: [{
-                            parts: [
-                                { text: "You are a voice assistant. Answer in 1 short sentence." },
-                                { inline_data: { mime_type: "audio/webm", data: base64Audio } }
-                            ]
-                        }]
-                    })
-                });
-
-                const data = await response.json();
-                
-                if (data.error) throw new Error(data.error.message);
-                if (!data.candidates) throw new Error("No response (Audio unclear?)");
-
-                const aiText = data.candidates[0].content.parts[0].text;
-                logEl.textContent = aiText;
-                speakText(aiText);
-
-            } catch (error) {
-                logEl.textContent = "API Error: " + error.message;
-            } finally {
-                micBtn.textContent = "Hold to Speak";
-                micBtn.style.background = ""; // Revert to CSS default
-                micBtn.classList.add('ready'); // Re-apply ready class styles
-            }
-        }
-
-        function blobToBase64(blob) {
-            return new Promise((r) => {
-                const reader = new FileReader();
-                reader.onloadend = () => r(reader.result.split(',')[1]);
-                reader.readAsDataURL(blob);
-            });
-        }
-
-        function speakText(text) {
-            window.speechSynthesis.cancel();
-            const utterance = new SpeechSynthesisUtterance(text);
-            window.speechSynthesis.speak(utterance);
-        }
-    </script>
-</body>
-</html>
-            font-size: 0.9rem; border: 1px solid #333; min-height: 60px;
-            white-space: pre-wrap; word-wrap: break-word; text-align: left;
-        }
-
-        #modelList {
-            margin-top: 20px; width: 100%; max-width: 320px; text-align: left;
-        }
-        
-        .model-item {
-            background: #222; padding: 12px; margin-bottom: 8px; border-radius: 8px;
-            border: 1px solid #333; cursor: pointer; display: flex; justify-content: space-between;
+        /* --- MICROPHONE FLOATING BUTTON (FAB) --- */
+        #mic-btn {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            width: 70px;
+            height: 70px;
+            border-radius: 50%;
+            border: none;
+            background: #333; /* Default gray state */
+            color: white;
+            cursor: pointer;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            display: flex;
             align-items: center;
-        }
-        .model-item:hover { background: #2a2a2a; border-color: #555; }
-        .model-item.active { border-color: #4e8cff; background: #1a2639; }
-        .model-name { font-weight: bold; font-size: 0.9rem; }
-        .model-ver { font-size: 0.75rem; color: #888; }
-
-    </style>
-</head>
-<body>
-
-    <h2>Gemini Voice Assistant</h2>
-    <div class="current-model">Current: <span id="currentModelDisplay">gemini-1.5-flash</span></div>
-
-    <button id="micBtn" class="btn">Hold to Speak</button>
-    <button id="listBtn" class="btn">Check Available Models</button>
-
-    <div id="log">Status: Ready.</div>
-    <div id="modelList"></div>
-
-    <script>
-        // --- CONFIG ---
-        const API_KEY = "AIzaSyAehS-QGJqkwKu91wQFLoi2uhT_784gU_0";
-        let SELECTED_MODEL = "gemini-1.5-flash"; // Default
-
-        const micBtn = document.getElementById('micBtn');
-        const listBtn = document.getElementById('listBtn');
-        const logEl = document.getElementById('log');
-        const modelListEl = document.getElementById('modelList');
-        const currentModelDisplay = document.getElementById('currentModelDisplay');
-
-        // --- 1. LIST MODELS FUNCTION ---
-        listBtn.addEventListener('click', async () => {
-            logEl.textContent = "Status: Fetching model list...";
-            modelListEl.innerHTML = ""; // Clear old list
-
-            try {
-                // Determine API version based on model name pattern if needed, but standard list is usually v1beta
-                const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${API_KEY}`;
-                
-                const response = await fetch(url);
-                const data = await response.json();
-
-                if (data.error) throw new Error(data.error.message);
-                if (!data.models) throw new Error("No models found.");
-
-                logEl.textContent = `Status: Found ${data.models.length} models.`;
-
-                // Filter & Sort
-                const chatModels = data.models.filter(m => 
-                    m.supportedGenerationMethods && 
-                    m.supportedGenerationMethods.includes("generateContent")
-                );
-
-                if (chatModels.length === 0) {
-                    logEl.textContent = "Status: No chat-compatible models found for this key.";
-                    return;
-                }
-
-                // Create UI List
-                chatModels.forEach(model => {
-                    const name = model.name.replace("models/", ""); // clean up name
-                    
-                    const div = document.createElement('div');
-                    div.className = "model-item";
-                    if(name === SELECTED_MODEL) div.classList.add('active');
-                    
-                    div.innerHTML = `
-                        <div>
-                            <div class="model-name">${name}</div>
-                            <div class="model-ver">${model.version || "v1"}</div>
-                        </div>
-                        ${name === SELECTED_MODEL ? '<span style="color:#4e8cff">●</span>' : ''}
-                    `;
-
-                    // Click to Select
-                    div.addEventListener('click', () => {
-                        SELECTED_MODEL = name;
-                        currentModelDisplay.textContent = name;
-                        logEl.textContent = `Status: Switched to ${name}`;
-                        
-                        // Update visual selection
-                        document.querySelectorAll('.model-item').forEach(el => el.classList.remove('active'));
-                        div.classList.add('active');
-                    });
-
-                    modelListEl.appendChild(div);
-                });
-
-            } catch (error) {
-                console.error(error);
-                logEl.textContent = "Error listing models: " + error.message;
-            }
-        });
-
-        // --- 2. VOICE RECORDING LOGIC ---
-        let mediaRecorder;
-        let audioChunks = [];
-
-        micBtn.addEventListener('touchstart', startRecord);
-        micBtn.addEventListener('touchend', stopRecord);
-        micBtn.addEventListener('mousedown', startRecord);
-        micBtn.addEventListener('mouseup', stopRecord);
-
-        async function startRecord(e) {
-            e.preventDefault(); // Stop text selection on mobile
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                mediaRecorder = new MediaRecorder(stream);
-                audioChunks = [];
-
-                mediaRecorder.ondataavailable = event => audioChunks.push(event.data);
-                mediaRecorder.start();
-
-                micBtn.textContent = "Recording... (Release to Stop)";
-                micBtn.style.background = "#e74c3c"; // Red
-                logEl.textContent = "Status: Listening...";
-            } catch (err) {
-                logEl.textContent = "Error: " + err.message + "\n(Check browser permissions)";
-            }
+            justify-content: center;
+            transition: all 0.2s ease;
+            z-index: 1000;
+            outline: none;
+            -webkit-tap-highlight-color: transparent;
         }
 
-        function stopRecord(e) {
-            e.preventDefault();
-            if (!mediaRecorder || mediaRecorder.state === 'inactive') return;
+        /* Hover Effect */
+        #mic-btn:hover { transform: scale(1.05); }
+        #mic-btn:active { transform: scale(0.95); }
 
-            mediaRecorder.stop();
-            micBtn.textContent = "Thinking...";
-            micBtn.style.background = "#f1c40f"; // Yellow
-            logEl.textContent = "Status: Sending audio...";
+        /* Icons */
+        #mic-btn svg { width: 32px; height: 32px; fill: currentColor; }
 
-            // Wait briefly for recorder to finish
-            setTimeout(async () => {
-                const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-                const base64Audio = await blobToBase64(audioBlob);
-                await sendToGemini(base64Audio);
-            }, 500);
+        /* --- STATE STYLES --- */
+        
+        /* State 1: Ready (Blue) */
+        #mic-btn.ready {
+            background: linear-gradient(135deg, #4e8cff, #2a52be);
+            box-shadow: 0 4px 20px rgba(78, 140, 255, 0.4);
         }
 
-        async function sendToGemini(base64Audio) {
-            // DYNAMIC URL based on selected model
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/${SELECTED_MODEL}:generateContent?key=${API_KEY}`;
-
-            try {
-                const response = await fetch(url, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        contents: [{
-                            parts: [
-                                { text: "You are a helpful assistant. Keep it short." },
-                                { inline_data: { mime_type: "audio/webm", data: base64Audio } }
-                            ]
-                        }]
-                    })
-                });
-
-                const data = await response.json();
-
-                if (data.error) throw new Error(data.error.message);
-                
-                const aiText = data.candidates?.[0]?.content?.parts?.[0]?.text || "No response text.";
-                
-                logEl.textContent = "Gemini: " + aiText;
-                speakText(aiText);
-
-            } catch (error) {
-                logEl.textContent = "API Error: " + error.message;
-            } finally {
-                micBtn.textContent = "Hold to Speak";
-                micBtn.style.background = "linear-gradient(135deg, #4e8cff, #2a52be)";
-            }
+        /* State 2: Recording (Red Pulse) */
+        #mic-btn.recording {
+            background: #ff4444;
+            animation: pulse-red 1.5s infinite;
         }
 
-        function blobToBase64(blob) {
-            return new Promise((resolve) => {
-                const reader = new FileReader();
-                reader.onloadend = () => resolve(reader.result.split(',')[1]);
-                reader.readAsDataURL(blob);
-            });
+        /* State 3: Thinking (Yellow Pulse) */
+        #mic-btn.thinking {
+            background: #ffbb00;
+            animation: pulse-yellow 1.5s infinite;
         }
 
-        function speakText(text) {
-            window.speechSynthesis.cancel();
-            const utterance = new SpeechSynthesisUtterance(text);
-            window.speechSynthesis.speak(utterance);
+        @keyframes pulse-red {
+            0% { box-shadow: 0 0 0 0 rgba(255, 68, 68, 0.7); }
+            70% { box-shadow: 0 0 0 15px rgba(255, 68, 68, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(255, 68, 68, 0); }
         }
-    </script>
-</body>
-</html>
-            margin-top: 20px; padding: 15px; background: #1e1e1e; 
-            width: 100%; max-width: 300px; border-radius: 8px; 
-            font-size: 0.9rem; border: 1px solid #333; min-height: 100px;
-            white-space: pre-wrap; word-wrap: break-word;
+
+        @keyframes pulse-yellow {
+            0% { box-shadow: 0 0 0 0 rgba(255, 187, 0, 0.7); }
+            70% { box-shadow: 0 0 0 15px rgba(255, 187, 0, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(255, 187, 0, 0); }
+        }
+
+        /* --- SUBTLE STATUS TEXT (Top Center) --- */
+        #status-text {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #666;
+            font-size: 0.9rem;
+            pointer-events: none;
+            transition: opacity 0.3s;
         }
     </style>
 </head>
 <body>
 
-    <h2>DIAGNOSTIC MODE</h2>
-    
-    <div style="width:100%; max-width:300px; margin-bottom:30px; border-bottom:1px solid #333; padding-bottom:20px;">
-        <p style="color:#aaa">TEST 1: API Key Check</p>
-        <input type="text" id="textInput" placeholder="Type 'Hello' here...">
-        <button onclick="sendText()" style="background:#555">Send Text</button>
-    </div>
+    <div id="status-text">Tap mic to enable</div>
 
-    <div style="width:100%; max-width:300px;">
-        <p style="color:#aaa">TEST 2: Microphone Check</p>
-        <div class="meter-container"><div id="volume-bar"></div></div>
-        <button id="micBtn">Hold to Record Audio</button>
-    </div>
-
-    <div id="log">Log will appear here...</div>
+    <button id="mic-btn" title="Microphone">
+        <svg viewBox="0 0 24 24">
+            <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+            <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+        </svg>
+    </button>
 
     <script>
-        const API_KEY = "AIzaSyAehS-QGJqkwKu91wQFLoi2uhT_784gU_0";
-        const MODEL = "gemini-1.5-flash-preview"; // More stable model
+        /* --- CONFIGURATION --- */
+        const API_KEY = "AIzaSyDg_-jCXLGrz6laQweUAD9aZCtn61_cK7A";
+        const MODEL = "gemini-3-flash-preview";
 
-        const logEl = document.getElementById('log');
-        const volBar = document.getElementById('volume-bar');
-        const micBtn = document.getElementById('micBtn');
+        /* --- ELEMENTS --- */
+        const btn = document.getElementById('mic-btn');
+        const status = document.getElementById('status-text');
 
+        let isPermissionGranted = false;
         let mediaRecorder;
         let audioChunks = [];
-        let audioContext;
-        let analyser;
-        let stream;
 
-        // --- LOGGER ---
-        function log(msg) {
-            logEl.textContent = msg + "\n\n" + logEl.textContent; 
-        }
-
-        // --- TEST 1: TEXT ONLY ---
-        async function sendText() {
-            const text = document.getElementById('textInput').value;
-            if(!text) return;
-            
-            log("Sending text: " + text);
-            try {
-                const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${API_KEY}`;
-                const response = await fetch(url, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ contents: [{ parts: [{ text: text }] }] })
-                });
-                const data = await response.json();
-                
-                if(data.error) throw new Error(data.error.message);
-                if(!data.candidates) throw new Error("Blocked/Empty");
-                
-                log("SUCCESS (Text): " + data.candidates[0].content.parts[0].text);
-            } catch(e) {
-                log("ERROR (Text): " + e.message);
-            }
-        }
-
-        // --- TEST 2: AUDIO RECORDING ---
-        micBtn.addEventListener('touchstart', startRecord);
-        micBtn.addEventListener('touchend', stopRecord);
-        micBtn.addEventListener('mousedown', startRecord);
-        micBtn.addEventListener('mouseup', stopRecord);
-
-        async function startRecord(e) {
-            e.preventDefault();
-            try {
-                stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                
-                // 1. Setup Volume Visualizer
-                audioContext = new AudioContext();
-                const source = audioContext.createMediaStreamSource(stream);
-                analyser = audioContext.createAnalyser();
-                source.connect(analyser);
-                analyser.fftSize = 256;
-                const bufferLength = analyser.frequencyBinCount;
-                const dataArray = new Uint8Array(bufferLength);
-
-                // Animation Loop
-                function draw() {
-                    if(!stream.active) return;
-                    requestAnimationFrame(draw);
-                    analyser.getByteFrequencyData(dataArray);
-                    let sum = 0;
-                    for(let i=0; i<bufferLength; i++) sum += dataArray[i];
-                    let average = sum / bufferLength;
-                    // Amplify for visual
-                    let width = Math.min(100, average * 3); 
-                    volBar.style.width = width + "%";
-                }
-                draw();
-
-                // 2. Setup Recorder
-                mediaRecorder = new MediaRecorder(stream);
-                audioChunks = [];
-                mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
-                mediaRecorder.start();
-                
-                log("Recording... (Check if green bar moves!)");
-                micBtn.style.background = "red";
-                micBtn.textContent = "Recording...";
-
-            } catch(err) {
-                log("MIC ERROR: " + err.message);
-            }
-        }
-
-        async function stopRecord(e) {
-            e.preventDefault();
-            if(!mediaRecorder || mediaRecorder.state === 'inactive') return;
-
-            mediaRecorder.stop();
-            stream.getTracks().forEach(t => t.stop()); // Stop mic
-            audioContext.close(); // Stop audio processing
-            
-            micBtn.style.background = "#4e8cff";
-            micBtn.textContent = "Processing...";
-            volBar.style.width = "0%";
-
-            setTimeout(async () => {
-                const blob = new Blob(audioChunks, { type: 'audio/webm' });
-                if(blob.size < 1000) {
-                    log("ERROR: Audio file too small (Silence?)");
-                    return;
-                }
-                
-                // Send to Gemini
-                const base64 = await new Promise(r => {
-                    const reader = new FileReader();
-                    reader.onloadend = () => r(reader.result.split(',')[1]);
-                    reader.readAsDataURL(blob);
-                });
-
-                log("Sending Audio (" + blob.size + " bytes)...");
-                
+        /* --- 1. INITIAL CLICK (Permission) --- */
+        btn.addEventListener('click', async (e) => {
+            // Only run this logic if we don't have permission yet
+            if (!isPermissionGranted) {
+                status.textContent = "Requesting access...";
                 try {
-                    const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${API_KEY}`;
-                    const response = await fetch(url, {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({
-                            contents: [{
-                                parts: [
-                                    { text: "Listen to this audio." },
-                                    { inline_data: { mime_type: "audio/webm", data: base64 } }
-                                ]
-                            }]
-                        })
-                    });
-                    const data = await response.json();
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                     
-                    if(data.error) throw new Error(data.error.message);
-                    if(!data.candidates) {
-                        console.log(data); // Debug
-                        throw new Error("Safety Block / Empty. (Did you speak clearly?)");
-                    }
-
-                    const answer = data.candidates[0].content.parts[0].text;
-                    log("GEMINI: " + answer);
+                    // Success! Switch to "Ready" mode
+                    isPermissionGranted = true;
+                    btn.classList.add('ready');
+                    status.textContent = "Hold button to speak";
                     
-                    const speech = new SpeechSynthesisUtterance(answer);
-                    window.speechSynthesis.speak(speech);
+                    // Initialize recorder with this stream
+                    setupRecorder(stream);
 
-                } catch(err) {
-                    log("API ERROR: " + err.message);
+                } catch (err) {
+                    console.error(err);
+                    status.textContent = "Access Denied. Reset permissions.";
+                    status.style.color = "#ff4444";
                 }
-            }, 500);
-        }
-    </script>
-</body>
-</html>
-        #log { 
-            color: #ccc; 
-            font-size: 1rem; 
-            padding: 20px; 
-            max-width: 90%;
-            line-height: 1.6;
-            background: #222;
-            border-radius: 10px;
-        }
-    </style>
-</head>
-<body>
-
-    <button id="btn">TAP TO SPEAK</button>
-    <div id="log">Status: Ready. Tap the button.</div>
-
-    <script>
-        const btn = document.getElementById('btn');
-        const log = document.getElementById('log');
-        
-        // Using the stable 1.5 Flash model
-        const API_KEY = "AIzaSyAehS-QGJqkwKu91wQFLoi2uhT_784gU_0"; 
-        const MODEL = "gemini-1.5-flash";
-
-        let mediaRecorder;
-        let audioChunks = [];
-
-        btn.addEventListener('click', async () => {
-            log.textContent = "Status: Asking for Microphone...";
-            
-            try {
-                // 1. Get Permission
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                
-                log.textContent = "Status: Listening... Say something!";
-                btn.style.background = "#e74c3c"; // Red for recording
-                btn.textContent = "Recording...";
-
-                // 2. Start Recording
-                mediaRecorder = new MediaRecorder(stream);
-                audioChunks = [];
-
-                mediaRecorder.ondataavailable = event => {
-                    audioChunks.push(event.data);
-                };
-
-                mediaRecorder.onstop = async () => {
-                    log.textContent = "Status: Sending to Gemini...";
-                    btn.textContent = "Thinking...";
-                    btn.style.background = "#f1c40f"; // Yellow for thinking
-                    
-                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-                    const base64Audio = await blobToBase64(audioBlob);
-                    
-                    await sendToGemini(base64Audio);
-                };
-
-                mediaRecorder.start();
-
-                // 3. Stop automatically after 4 seconds
-                setTimeout(() => {
-                    if(mediaRecorder.state === 'recording') {
-                        mediaRecorder.stop();
-                        // Stop all mic tracks to turn off the red dot
-                        stream.getTracks().forEach(track => track.stop());
-                    }
-                }, 4000);
-
-            } catch (err) {
-                console.error(err);
-                log.textContent = "Error: " + err.message + "\n(Check browser permissions)";
-                alert("Permission Denied. Please reset site permissions.");
             }
         });
 
-        async function sendToGemini(base64Audio) {
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${API_KEY}`;
+        /* --- 2. RECORDER SETUP --- */
+        function setupRecorder(stream) {
+            mediaRecorder = new MediaRecorder(stream);
             
-            const payload = {
-                contents: [{
-                    parts: [
-                        { text: "You are a helpful assistant. Answer in 1 short sentence." },
-                        { inline_data: { mime_type: "audio/webm", data: base64Audio } }
-                    ]
-                }]
-            };
-
-            try {
-                const response = await fetch(url, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-
-                const data = await response.json();
-
-                // --- FIX FOR THE CRASH ---
-                if (!data.candidates || data.candidates.length === 0) {
-                    throw new Error("Gemini didn't answer (Safety Block or Empty Response).");
-                }
-
-                const aiText = data.candidates[0].content.parts[0].text;
-                
-                log.textContent = "Gemini: " + aiText;
-                speakText(aiText);
-                
-                btn.textContent = "Tap to Speak Again";
-                btn.style.background = "#4e8cff"; 
-
-            } catch (error) {
-                console.error("API Error:", error);
-                log.textContent = "Error: " + error.message;
-                btn.textContent = "Try Again";
-                btn.style.background = "#4e8cff";
-            }
-        }
-
-        function blobToBase64(blob) {
-            return new Promise((resolve) => {
-                const reader = new FileReader();
-                reader.onloadend = () => resolve(reader.result.split(',')[1]);
-                reader.readAsDataURL(blob);
-            });
-        }
-
-        function speakText(text) {
-            window.speechSynthesis.cancel();
-            const utterance = new SpeechSynthesisUtterance(text);
-            window.speechSynthesis.speak(utterance);
-        }
-    </script>
-</body>
-</html>
-        #log { 
-            color: #aaa; 
-            font-size: 1rem; 
-            padding: 20px; 
-            max-width: 80%;
-            line-height: 1.5;
-        }
-    </style>
-</head>
-<body>
-
-    <button id="btn">TAP TO START</button>
-    
-    <div id="log">Status: Waiting for you to tap the button...</div>
-
-    <script>
-        const btn = document.getElementById('btn');
-        const log = document.getElementById('log');
-        
-        // YOUR API KEY
-        const API_KEY = "AIzaSyAehS-QGJqkwKu91wQFLoi2uhT_784gU_0"; 
-
-        // 1. CLICK TO ASK PERMISSION
-        btn.addEventListener('click', async () => {
-            log.textContent = "Status: Asking for Microphone...";
-            
-            try {
-                // This line triggers the browser popup
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                
-                log.textContent = "Status: SUCCESS! Microphone is working.";
-                btn.style.background = "#2ecc71"; // Turn Green
-                btn.textContent = "Listening...";
-                
-                // 2. IMMEDIATELY START RECORDING FOR DEMO
-                startGemini(stream);
-
-            } catch (err) {
-                console.error(err);
-                log.textContent = "Status: BLOCKED. " + err.message;
-                alert("Error: Permission Denied.\n\nTap the Lock icon 🔒 in your address bar -> Permissions -> Reset Microphone.");
-            }
-        });
-
-        async function startGemini(stream) {
-            log.textContent = "Status: Recording... Say something!";
-            
-            const mediaRecorder = new MediaRecorder(stream);
-            const audioChunks = [];
-
-            mediaRecorder.ondataavailable = event => {
+            mediaRecorder.ondataavailable = (event) => {
                 audioChunks.push(event.data);
             };
 
             mediaRecorder.onstop = async () => {
-                log.textContent = "Status: Sending to Gemini...";
+                // When recording stops, send data
+                btn.className = 'thinking'; // Yellow state
+                status.textContent = "Gemini is thinking...";
                 
                 const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-                const base64Audio = await blobToBase64(audioBlob);
-                
-                await sendToGemini(base64Audio);
+                const base64 = await blobToBase64(audioBlob);
+                await sendToGemini(base64);
             };
-
-            mediaRecorder.start();
-
-            // Record for 4 seconds then stop automatically (Simple Demo)
-            setTimeout(() => {
-                mediaRecorder.stop();
-                btn.textContent = "Thinking...";
-            }, 4000);
         }
 
-        async function sendToGemini(base64Audio) {
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`;
+        /* --- 3. PUSH-TO-TALK LOGIC --- */
+        // START (Mouse/Touch Down)
+        const startAction = (e) => {
+            if (!isPermissionGranted || !mediaRecorder) return;
+            if (mediaRecorder.state === 'recording') return;
             
-            const payload = {
-                contents: [{
-                    parts: [
-                        { text: "You are a helpful assistant. Answer briefly." },
-                        { inline_data: { mime_type: "audio/webm", data: base64Audio } }
-                    ]
-                }]
-            };
+            e.preventDefault(); // Prevent text selection/ghost clicks
+            
+            audioChunks = []; // Clear old audio
+            mediaRecorder.start();
+            
+            btn.className = 'recording'; // Red state
+            status.textContent = "Listening...";
+        };
 
+        // STOP (Mouse/Touch Up)
+        const stopAction = (e) => {
+            if (!isPermissionGranted || !mediaRecorder) return;
+            if (mediaRecorder.state === 'recording') {
+                e.preventDefault();
+                mediaRecorder.stop(); // This triggers onstop() above
+            }
+        };
+
+        // Attach Listeners
+        btn.addEventListener('mousedown', startAction);
+        btn.addEventListener('touchstart', startAction);
+        
+        btn.addEventListener('mouseup', stopAction);
+        btn.addEventListener('mouseleave', stopAction); // If mouse slides off button
+        btn.addEventListener('touchend', stopAction);
+
+        /* --- 4. API COMMUNICATION --- */
+        async function sendToGemini(base64Audio) {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${API_KEY}`;
+            
             try {
                 const response = await fetch(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
+                    body: JSON.stringify({
+                        contents: [{
+                            parts: [
+                                { text: "You are a helpful voice assistant. Answer briefly in plain text." },
+                                { inline_data: { mime_type: "audio/webm", data: base64Audio } }
+                            ]
+                        }]
+                    })
                 });
 
                 const data = await response.json();
-                const aiText = data.candidates[0].content.parts[0].text;
                 
-                log.textContent = "Gemini: " + aiText;
-                speakText(aiText);
-                btn.textContent = "Tap to Speak Again";
-                btn.style.background = "#4e8cff"; // Reset Blue
+                if (data.error) throw new Error(data.error.message);
+                if (!data.candidates) throw new Error("No response.");
 
-            } catch (error) {
-                log.textContent = "Error: " + error.message;
+                const text = data.candidates[0].content.parts[0].text;
+                
+                // Speak & Reset
+                speak(text);
+                status.textContent = "Done";
+
+            } catch (err) {
+                console.error(err);
+                status.textContent = "Error: " + err.message;
+                speak("Sorry, I encountered an error.");
+            } finally {
+                // Reset button to Blue "Ready" state after a short delay
+                setTimeout(() => {
+                    btn.className = 'ready';
+                    if(status.textContent === "Done") status.textContent = "Hold button to speak";
+                }, 1000);
             }
         }
 
+        /* --- 5. UTILITIES --- */
         function blobToBase64(blob) {
             return new Promise((resolve) => {
                 const reader = new FileReader();
@@ -882,7 +238,7 @@
             });
         }
 
-        function speakText(text) {
+        function speak(text) {
             window.speechSynthesis.cancel();
             const utterance = new SpeechSynthesisUtterance(text);
             window.speechSynthesis.speak(utterance);
@@ -890,187 +246,3 @@
     </script>
 </body>
 </html>
-                log.textContent = "Status: SUCCESS! Mic is active.";
-                btn.style.background = "#2ecc71";
-                btn.textContent = "Mic Active";
-                
-                // Stop stream immediately (just wanted permission)
-                stream.getTracks().forEach(track => track.stop());
-                
-                // Now start the real logic (if you want)
-                alert("Microphone Permission Granted!");
-
-            } catch (err) {
-                log.textContent = "Status: DENIED. " + err.message;
-                alert("Error: " + err.message + "\n\nCheck browser settings -> Site Settings -> Microphone.");
-            }
-        });
-    </script>
-</body>
-</html>
-        #gemini-trigger.needs-permission { animation: pulse-blue 2s infinite; }
-
-        @keyframes pulse-red { 0% { box-shadow: 0 0 0 0 rgba(255, 78, 78, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(255, 78, 78, 0); } 100% { box-shadow: 0 0 0 0 rgba(255, 78, 78, 0); } }
-        @keyframes pulse-blue { 0% { box-shadow: 0 0 0 0 rgba(78, 140, 255, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(78, 140, 255, 0); } 100% { box-shadow: 0 0 0 0 rgba(78, 140, 255, 0); } }
-
-        .gemini-popup {
-            position: absolute; top: 60px; right: 0; width: 320px; background: white; border-radius: 12px; padding: 20px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.15); border: 1px solid #eee;
-            opacity: 0; visibility: hidden; transform: translateY(-10px); transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1); pointer-events: none;
-        }
-        .gemini-popup.active { opacity: 1; visibility: visible; transform: translateY(0); pointer-events: all; }
-        .gemini-popup::before { content: ''; position: absolute; top: -6px; right: 15px; width: 12px; height: 12px; background: white; transform: rotate(45deg); border-left: 1px solid #eee; border-top: 1px solid #eee; }
-
-        .gemini-status { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; color: #999; margin-bottom: 10px; font-weight: 700; }
-        .gemini-response { font-size: 0.95rem; color: #333; line-height: 1.5; max-height: 200px; overflow-y: auto; }
-        
-        .dots span { animation: blink 1.4s infinite both; font-size: 20px; line-height: 10px; }
-        .dots span:nth-child(2) { animation-delay: 0.2s; } .dots span:nth-child(3) { animation-delay: 0.4s; }
-        @keyframes blink { 0% { opacity: 0.2; } 20% { opacity: 1; } 100% { opacity: 0.2; } }
-    </style>
-</head>
-<body>
-
-    <header>
-        <div class="logo">MyCorp Inc.</div>
-        <div class="gemini-widget">
-            <button id="gemini-trigger" class="needs-permission" title="Click to Enable Mic">
-                <svg viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
-            </button>
-            <div class="gemini-popup" id="gemini-popup">
-                <div class="gemini-status" id="gemini-status">Setup Required</div>
-                <div class="gemini-response" id="gemini-text">Click the microphone icon to allow voice access.</div>
-            </div>
-        </div>
-    </header>
-
-    <div class="main-content">
-        <div class="hero-card">
-            <h1>Welcome to the Future</h1>
-            <p>This demo asks for microphone permission gracefully.</p>
-            <p>1. <strong>First Click:</strong> Asks for permission.<br>2. <strong>Then:</strong> Hold to speak.</p>
-        </div>
-    </div>
-
-    <script>
-        // --- CONFIG ---
-        const API_KEY = "AIzaSyAehS-QGJqkwKu91wQFLoi2uhT_784gU_0";
-        const MODEL_NAME = "gemini-3-flash-preview";
-
-        // --- ELEMENTS ---
-        const triggerBtn = document.getElementById('gemini-trigger');
-        const popup = document.getElementById('gemini-popup');
-        const statusEl = document.getElementById('gemini-status');
-        const textEl = document.getElementById('gemini-text');
-
-        let mediaRecorder;
-        let audioChunks = [];
-        let globalStream = null; // Store the stream globally
-        let isPermissionGranted = false;
-
-        // --- 1. PERMISSION HANDLING ---
-        
-        async function requestMicrophone() {
-            try {
-                // Open popup to show we are trying
-                popup.classList.add('active');
-                statusEl.textContent = "Requesting Access...";
-                textEl.textContent = "Please click 'Allow' in your browser pop-up.";
-
-                // The browser prompt happens here
-                globalStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                
-                // Success
-                isPermissionGranted = true;
-                triggerBtn.classList.remove('needs-permission'); // Stop pulsing blue
-                triggerBtn.title = "Hold to Speak";
-                statusEl.textContent = "Ready";
-                statusEl.style.color = "#4e8cff";
-                textEl.textContent = "Microphone connected! Now, click and HOLD the button to speak.";
-
-            } catch (err) {
-                console.error("Permission denied:", err);
-                statusEl.textContent = "Error";
-                statusEl.style.color = "#ff4e4e";
-                textEl.textContent = "Microphone permission was denied. Please reset permissions in your browser settings.";
-            }
-        }
-
-        // --- 2. RECORDING LOGIC ---
-
-        function startRecording() {
-            // Safety check: if no permission, do nothing (wait for click event to handle it)
-            if (!isPermissionGranted || !globalStream) return;
-
-            popup.classList.add('active');
-            
-            let options = { mimeType: 'audio/webm' };
-            if (!MediaRecorder.isTypeSupported('audio/webm')) {
-                options.mimeType = MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : '';
-            }
-
-            // Reuse the global stream
-            mediaRecorder = new MediaRecorder(globalStream, options);
-            audioChunks = [];
-
-            mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
-            mediaRecorder.onstop = processAudio; // Trigger Gemini when stopped
-
-            mediaRecorder.start();
-            
-            // UI Updates
-            triggerBtn.classList.add('recording');
-            statusEl.textContent = "Listening...";
-            statusEl.style.color = "#ff4e4e";
-            textEl.innerHTML = '<div class="dots"><span>.</span><span>.</span><span>.</span></div>';
-        }
-
-        function stopRecording() {
-            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-                mediaRecorder.stop();
-                triggerBtn.classList.remove('recording');
-                statusEl.textContent = "Thinking...";
-                statusEl.style.color = "#4e8cff";
-            }
-        }
-
-        // --- 3. GEMINI API ---
-
-        async function processAudio() {
-            // Note: In the 'onstop' event, audioChunks is ready
-            const audioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType });
-            const base64Audio = await blobToBase64(audioBlob);
-
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${API_KEY}`;
-            
-            const payload = {
-                contents: [{
-                    parts: [
-                        { text: "You are a helpful assistant. Be concise." },
-                        { inline_data: { mime_type: mediaRecorder.mimeType, data: base64Audio } }
-                    ]
-                }]
-            };
-
-            try {
-                const response = await fetch(url, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-
-                const data = await response.json();
-                if (!response.ok) throw new Error(data.error?.message || "API Error");
-
-                const aiText = data.candidates[0].content.parts[0].text;
-                
-                statusEl.textContent = "Gemini:";
-                statusEl.style.color = "#888";
-                typeWriterEffect(aiText);
-                speakText(aiText);
-
-            } catch (error) {
-                statusEl.textContent = "Error";
-                textEl.textContent = error.message;
-            }
-        }
