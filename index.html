@@ -3,37 +3,238 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gemini Diagnostic</title>
+    <title>Gemini Model Lister</title>
     <style>
         body { 
-            background: #121212; color: white; font-family: monospace; 
+            background: #121212; color: white; font-family: 'Segoe UI', sans-serif; 
             display: flex; flex-direction: column; align-items: center; 
-            padding: 20px; height: 100vh; box-sizing: border-box;
-        }
-        
-        /* Volume Meter */
-        .meter-container {
-            width: 100%; max-width: 300px; height: 20px; 
-            background: #333; border-radius: 10px; margin: 20px 0; overflow: hidden;
-            border: 1px solid #555;
-        }
-        #volume-bar {
-            width: 0%; height: 100%; background: #00ff00; 
-            transition: width 0.1s;
+            padding: 20px; min-height: 100vh; box-sizing: border-box; text-align: center;
         }
 
-        button {
-            padding: 15px 30px; font-size: 1.1rem; border-radius: 8px; border: none;
-            background: #4e8cff; color: white; margin: 10px; cursor: pointer; width: 100%; max-width: 300px;
-        }
-        
-        input {
-            padding: 15px; width: 100%; max-width: 280px; 
-            background: #222; border: 1px solid #444; color: white; 
-            border-radius: 8px; margin-bottom: 10px;
+        h2 { margin-bottom: 10px; color: #4e8cff; }
+
+        .current-model {
+            font-size: 0.9rem; color: #aaa; margin-bottom: 30px;
+            background: #1e1e1e; padding: 8px 15px; border-radius: 20px;
+            border: 1px solid #333;
         }
 
+        /* BIG BUTTONS */
+        .btn {
+            padding: 15px 30px; font-size: 1.1rem; border-radius: 12px; border: none;
+            color: white; margin: 10px 0; cursor: pointer; width: 100%; max-width: 320px;
+            transition: transform 0.1s; font-weight: 600;
+        }
+        .btn:active { transform: scale(0.96); }
+        
+        #micBtn { background: linear-gradient(135deg, #4e8cff, #2a52be); box-shadow: 0 4px 15px rgba(78, 140, 255, 0.3); }
+        #listBtn { background: #333; border: 1px solid #555; }
+
+        /* LOG & LIST AREAS */
         #log { 
+            margin-top: 20px; padding: 15px; background: #1e1e1e; 
+            width: 100%; max-width: 320px; border-radius: 8px; 
+            font-size: 0.9rem; border: 1px solid #333; min-height: 60px;
+            white-space: pre-wrap; word-wrap: break-word; text-align: left;
+        }
+
+        #modelList {
+            margin-top: 20px; width: 100%; max-width: 320px; text-align: left;
+        }
+        
+        .model-item {
+            background: #222; padding: 12px; margin-bottom: 8px; border-radius: 8px;
+            border: 1px solid #333; cursor: pointer; display: flex; justify-content: space-between;
+            align-items: center;
+        }
+        .model-item:hover { background: #2a2a2a; border-color: #555; }
+        .model-item.active { border-color: #4e8cff; background: #1a2639; }
+        .model-name { font-weight: bold; font-size: 0.9rem; }
+        .model-ver { font-size: 0.75rem; color: #888; }
+
+    </style>
+</head>
+<body>
+
+    <h2>Gemini Voice Assistant</h2>
+    <div class="current-model">Current: <span id="currentModelDisplay">gemini-1.5-flash</span></div>
+
+    <button id="micBtn" class="btn">Hold to Speak</button>
+    <button id="listBtn" class="btn">Check Available Models</button>
+
+    <div id="log">Status: Ready.</div>
+    <div id="modelList"></div>
+
+    <script>
+        // --- CONFIG ---
+        const API_KEY = "AIzaSyAehS-QGJqkwKu91wQFLoi2uhT_784gU_0";
+        let SELECTED_MODEL = "gemini-1.5-flash"; // Default
+
+        const micBtn = document.getElementById('micBtn');
+        const listBtn = document.getElementById('listBtn');
+        const logEl = document.getElementById('log');
+        const modelListEl = document.getElementById('modelList');
+        const currentModelDisplay = document.getElementById('currentModelDisplay');
+
+        // --- 1. LIST MODELS FUNCTION ---
+        listBtn.addEventListener('click', async () => {
+            logEl.textContent = "Status: Fetching model list...";
+            modelListEl.innerHTML = ""; // Clear old list
+
+            try {
+                // Determine API version based on model name pattern if needed, but standard list is usually v1beta
+                const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${API_KEY}`;
+                
+                const response = await fetch(url);
+                const data = await response.json();
+
+                if (data.error) throw new Error(data.error.message);
+                if (!data.models) throw new Error("No models found.");
+
+                logEl.textContent = `Status: Found ${data.models.length} models.`;
+
+                // Filter & Sort
+                const chatModels = data.models.filter(m => 
+                    m.supportedGenerationMethods && 
+                    m.supportedGenerationMethods.includes("generateContent")
+                );
+
+                if (chatModels.length === 0) {
+                    logEl.textContent = "Status: No chat-compatible models found for this key.";
+                    return;
+                }
+
+                // Create UI List
+                chatModels.forEach(model => {
+                    const name = model.name.replace("models/", ""); // clean up name
+                    
+                    const div = document.createElement('div');
+                    div.className = "model-item";
+                    if(name === SELECTED_MODEL) div.classList.add('active');
+                    
+                    div.innerHTML = `
+                        <div>
+                            <div class="model-name">${name}</div>
+                            <div class="model-ver">${model.version || "v1"}</div>
+                        </div>
+                        ${name === SELECTED_MODEL ? '<span style="color:#4e8cff">●</span>' : ''}
+                    `;
+
+                    // Click to Select
+                    div.addEventListener('click', () => {
+                        SELECTED_MODEL = name;
+                        currentModelDisplay.textContent = name;
+                        logEl.textContent = `Status: Switched to ${name}`;
+                        
+                        // Update visual selection
+                        document.querySelectorAll('.model-item').forEach(el => el.classList.remove('active'));
+                        div.classList.add('active');
+                    });
+
+                    modelListEl.appendChild(div);
+                });
+
+            } catch (error) {
+                console.error(error);
+                logEl.textContent = "Error listing models: " + error.message;
+            }
+        });
+
+        // --- 2. VOICE RECORDING LOGIC ---
+        let mediaRecorder;
+        let audioChunks = [];
+
+        micBtn.addEventListener('touchstart', startRecord);
+        micBtn.addEventListener('touchend', stopRecord);
+        micBtn.addEventListener('mousedown', startRecord);
+        micBtn.addEventListener('mouseup', stopRecord);
+
+        async function startRecord(e) {
+            e.preventDefault(); // Stop text selection on mobile
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
+
+                mediaRecorder.ondataavailable = event => audioChunks.push(event.data);
+                mediaRecorder.start();
+
+                micBtn.textContent = "Recording... (Release to Stop)";
+                micBtn.style.background = "#e74c3c"; // Red
+                logEl.textContent = "Status: Listening...";
+            } catch (err) {
+                logEl.textContent = "Error: " + err.message + "\n(Check browser permissions)";
+            }
+        }
+
+        function stopRecord(e) {
+            e.preventDefault();
+            if (!mediaRecorder || mediaRecorder.state === 'inactive') return;
+
+            mediaRecorder.stop();
+            micBtn.textContent = "Thinking...";
+            micBtn.style.background = "#f1c40f"; // Yellow
+            logEl.textContent = "Status: Sending audio...";
+
+            // Wait briefly for recorder to finish
+            setTimeout(async () => {
+                const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                const base64Audio = await blobToBase64(audioBlob);
+                await sendToGemini(base64Audio);
+            }, 500);
+        }
+
+        async function sendToGemini(base64Audio) {
+            // DYNAMIC URL based on selected model
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${SELECTED_MODEL}:generateContent?key=${API_KEY}`;
+
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{
+                            parts: [
+                                { text: "You are a helpful assistant. Keep it short." },
+                                { inline_data: { mime_type: "audio/webm", data: base64Audio } }
+                            ]
+                        }]
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.error) throw new Error(data.error.message);
+                
+                const aiText = data.candidates?.[0]?.content?.parts?.[0]?.text || "No response text.";
+                
+                logEl.textContent = "Gemini: " + aiText;
+                speakText(aiText);
+
+            } catch (error) {
+                logEl.textContent = "API Error: " + error.message;
+            } finally {
+                micBtn.textContent = "Hold to Speak";
+                micBtn.style.background = "linear-gradient(135deg, #4e8cff, #2a52be)";
+            }
+        }
+
+        function blobToBase64(blob) {
+            return new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result.split(',')[1]);
+                reader.readAsDataURL(blob);
+            });
+        }
+
+        function speakText(text) {
+            window.speechSynthesis.cancel();
+            const utterance = new SpeechSynthesisUtterance(text);
+            window.speechSynthesis.speak(utterance);
+        }
+    </script>
+</body>
+</html>
             margin-top: 20px; padding: 15px; background: #1e1e1e; 
             width: 100%; max-width: 300px; border-radius: 8px; 
             font-size: 0.9rem; border: 1px solid #333; min-height: 100px;
