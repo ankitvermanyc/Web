@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gemini Voice Assistant</title>
     <style>
+        /* This prevents the raw text from showing up on screen */
         body { 
             display: flex; 
             flex-direction: column; 
@@ -12,7 +13,7 @@
             justify-content: center; 
             height: 100vh; 
             margin: 0; 
-            background: #222; 
+            background: #111; 
             color: white; 
             font-family: sans-serif;
             text-align: center;
@@ -28,12 +29,144 @@
             margin-bottom: 20px;
             box-shadow: 0 4px 15px rgba(78, 140, 255, 0.4);
             cursor: pointer;
+            transition: all 0.2s;
         }
 
-        button:active {
-            transform: scale(0.95);
+        button:active { transform: scale(0.95); }
+
+        #log { 
+            color: #ccc; 
+            font-size: 1rem; 
+            padding: 20px; 
+            max-width: 90%;
+            line-height: 1.6;
+            background: #222;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body>
+
+    <button id="btn">TAP TO SPEAK</button>
+    <div id="log">Status: Ready. Tap the button.</div>
+
+    <script>
+        const btn = document.getElementById('btn');
+        const log = document.getElementById('log');
+        
+        // Using the stable 1.5 Flash model
+        const API_KEY = "AIzaSyAehS-QGJqkwKu91wQFLoi2uhT_784gU_0"; 
+        const MODEL = "gemini-1.5-flash";
+
+        let mediaRecorder;
+        let audioChunks = [];
+
+        btn.addEventListener('click', async () => {
+            log.textContent = "Status: Asking for Microphone...";
+            
+            try {
+                // 1. Get Permission
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                
+                log.textContent = "Status: Listening... Say something!";
+                btn.style.background = "#e74c3c"; // Red for recording
+                btn.textContent = "Recording...";
+
+                // 2. Start Recording
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
+
+                mediaRecorder.ondataavailable = event => {
+                    audioChunks.push(event.data);
+                };
+
+                mediaRecorder.onstop = async () => {
+                    log.textContent = "Status: Sending to Gemini...";
+                    btn.textContent = "Thinking...";
+                    btn.style.background = "#f1c40f"; // Yellow for thinking
+                    
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    const base64Audio = await blobToBase64(audioBlob);
+                    
+                    await sendToGemini(base64Audio);
+                };
+
+                mediaRecorder.start();
+
+                // 3. Stop automatically after 4 seconds
+                setTimeout(() => {
+                    if(mediaRecorder.state === 'recording') {
+                        mediaRecorder.stop();
+                        // Stop all mic tracks to turn off the red dot
+                        stream.getTracks().forEach(track => track.stop());
+                    }
+                }, 4000);
+
+            } catch (err) {
+                console.error(err);
+                log.textContent = "Error: " + err.message + "\n(Check browser permissions)";
+                alert("Permission Denied. Please reset site permissions.");
+            }
+        });
+
+        async function sendToGemini(base64Audio) {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${API_KEY}`;
+            
+            const payload = {
+                contents: [{
+                    parts: [
+                        { text: "You are a helpful assistant. Answer in 1 short sentence." },
+                        { inline_data: { mime_type: "audio/webm", data: base64Audio } }
+                    ]
+                }]
+            };
+
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await response.json();
+
+                // --- FIX FOR THE CRASH ---
+                if (!data.candidates || data.candidates.length === 0) {
+                    throw new Error("Gemini didn't answer (Safety Block or Empty Response).");
+                }
+
+                const aiText = data.candidates[0].content.parts[0].text;
+                
+                log.textContent = "Gemini: " + aiText;
+                speakText(aiText);
+                
+                btn.textContent = "Tap to Speak Again";
+                btn.style.background = "#4e8cff"; 
+
+            } catch (error) {
+                console.error("API Error:", error);
+                log.textContent = "Error: " + error.message;
+                btn.textContent = "Try Again";
+                btn.style.background = "#4e8cff";
+            }
         }
 
+        function blobToBase64(blob) {
+            return new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result.split(',')[1]);
+                reader.readAsDataURL(blob);
+            });
+        }
+
+        function speakText(text) {
+            window.speechSynthesis.cancel();
+            const utterance = new SpeechSynthesisUtterance(text);
+            window.speechSynthesis.speak(utterance);
+        }
+    </script>
+</body>
+</html>
         #log { 
             color: #aaa; 
             font-size: 1rem; 
